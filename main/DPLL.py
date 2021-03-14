@@ -6,24 +6,28 @@ from main.helper import debug_print
 def DPLL(file_name):
     debug_print("---- DPLL initiated ----")
     num_variables, clauses = parser.read_file_and_parse(file_name)
-    return DPLL_helper(clauses, [], 1, {})
+    return DPLL_helper(clauses, {}, 1, {})
 
 
 def DPLL_helper(phi, dec_list, level, mapping):
-    proplist, phi = unit_prop(phi, proplist)
-    if not phi:
+    debug_print("DPLL helper called with " + str(phi))
+    proplist, phi = unit_prop(phi, [])
+    if [] in phi.values():
         return "UNSAT", []
-    if [] in phi:
-        return "SAT", mapping
+    if not phi:
+        return "SAT", []
 
     dec_list[level] = proplist
+    # Select the first atomic proposition in phi
     p = ap_phi(phi)[0]
 
+    largest_clause_index = list(phi)[len(phi)-1]
+    print(largest_clause_index)
     phi_l = copy.deepcopy(phi)
-    phi_l[len(phi) + 1 + 1] = p
+    phi_l[largest_clause_index+1] = [p]
 
     phi_not_l = copy.deepcopy(phi)
-    phi_not_l[len(phi) + 1 + 1] = - p
+    phi_not_l[largest_clause_index+1] = [-p]
 
     l_mapping = copy.deepcopy(mapping)
     l_mapping.append(p)
@@ -84,5 +88,4 @@ def ap_phi(phi):
 
 if __name__ == "__main__":
     phi_test = {1: [1, -2], 2: [2222, 132112, -1], 3: [2], 4: [-1]}
-    a, b = unit_prop(phi_test, [])
-    print(a, b)
+    print(DPLL_helper(phi_test, {}, 1, []))
