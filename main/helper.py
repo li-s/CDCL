@@ -1,7 +1,7 @@
 from sys import stderr
 
 
-DEBUG = True
+DEBUG = False
 
 
 def debug_print(*args, **kwargs):

@@ -1,11 +1,11 @@
 import copy
-from main import parser
+from main import parser_list
 from main.helper import debug_print
 
 
 def DPLL(file_name):
     debug_print("---- DPLL initiated ----")
-    num_variables, clauses = parser.read_file_and_parse(file_name)
+    num_variables, clauses = parser_list.read_file_and_parse(file_name)
     a = ap_phi(clauses)
     sat, assignments = DPLL_helper(clauses, {}, 1, [])
 
@@ -78,9 +78,8 @@ def find_up(phi, p):
             phi_copy.remove(clause)
         elif -p in clause:
             phi_copy.remove(clause)
-            new_clause = clause
-            new_clause.remove(-p)
-            phi_copy.append(new_clause)
+            clause.remove(-p)
+            phi_copy.append(clause)
     return phi_copy
 
 
@@ -94,4 +93,4 @@ def ap_phi(phi):
 
 
 if __name__ == "__main__":
-    print(DPLL("../data/base_case.txt"))
+    print(DPLL("../data/lecture"))
