@@ -1,21 +1,28 @@
+import re
+from main.helper import debug_print
 
 
 def read_file_and_parse(file_name):
     f = open(file_name, "r")
-    comments = f.readline()
-    p_line = f.readline()
-    p_line = [i for i in p_line.split(" ")]
-    num_variables = int(p_line[2])
-    num_clauses = int(p_line[3][:1])
+    p_line = f.readline().strip()
+    while p_line[0] == 'c':
+        p_line = f.readline().strip()
+    p_line_split = [i for i in re.compile("\\s+").split(p_line)]
+    num_variables = int(p_line_split[2])
+    num_clauses = int(p_line_split[3])
+    debug_print(f"[Parser] Num variables: {num_variables}")
+    debug_print(f"[Parser] Num clauses: {num_clauses}")
 
-    clauses = {}
+    clauses = []
     for i in range(num_clauses):
-        next_line = f.readline()
-        DNF = [int(i) for i in next_line.split(" ")]
-        DNF = DNF[1:len(DNF) - 1]
-        clauses[i + 1] = DNF
+        next_line = f.readline().strip()
+        DNF = [int(i) for i in re.compile("\\s+").split(next_line)]
+        DNF = DNF[:len(DNF) - 1]
+        DNF = list(set(DNF))
+        clauses.append(DNF)
 
     return num_variables, clauses
+
 
 if __name__ == "__main__":
     a, b = read_file_and_parse("../data/base_case.txt")
