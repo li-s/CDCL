@@ -78,9 +78,8 @@ def find_up(phi, p):
             phi_copy.remove(clause)
         elif -p in clause:
             phi_copy.remove(clause)
-            new_clause = clause
-            new_clause.remove(-p)
-            phi_copy.append(new_clause)
+            clause.remove(-p)
+            phi_copy.append(clause)
     return phi_copy
 
 
