@@ -1,7 +1,8 @@
 import logging
+import random
+
 from main import logger
 from main import parser
-
 
 TRUE = 1
 FALSE = 0
@@ -15,25 +16,23 @@ class CDCLSolver:
         logging.info("---------Initializing CDCL Solver---------")
         self.filepath = filepath
         self.clauses = parser.read_file_and_parse(filepath)
+        self.learnt_clauses = set()
         self.atomic_prop = self.get_ap(self.clauses)
+        self.implication_graph = dict((v, Node(v, UNDEFINED)) for v in self.atomic_prop)
         self.assignments = {i: UNDEFINED for i in self.atomic_prop}
+
         self.level = 0
-        self.guess_trail = {}
-        self.propagation_trail = {}    # dict - level:int -> literals:set
-        self.reason = {}               # dict - literal:int -> clause:set
+        self.branching_var = set()
+        self.guess_trail = {}  # keep track of guesses
+        self.propagation_trail = {}  # dict - level:int -> literals:set, keep track of unit propagations
+        self.reason = {}  # dict - literal:int -> clause:set
+        self.num_PBV_invocations = 0  # number of pick branching var invocations
 
     def solve(self):
         if self.unit_propagation():
             return "UNSAT"
         while not self.all_variable_assigned():
             logging.info(f"Current decision level = {self.level}")
-            x, v = self.pick_branching_var()
-            logging.info(f"Pick {x} = {v}")
-            self.level += 1
-            self.assignments[x] = v
-            self.guess_trail[self.level] = x
-            self.reason[x] = (-1)
-            self.propagation_trail[self.level] = []
             conflict = self.unit_propagation()
             if conflict:
                 backtrack_level, learn_clause = self.conflict_analysis(conflict)
@@ -41,8 +40,19 @@ class CDCLSolver:
                     return "UNSAT"
                 else:
                     logging.info(f"Adding clause {learn_clause}")
-                    self.clauses.add(frozenset(learn_clause))
+                    self.learnt_clauses.add(frozenset(learn_clause))
                     self.backtrack(backtrack_level)
+            elif self.all_variable_assigned():
+                break
+            else:
+                x, v = self.pick_branching_var()
+                logging.info(f"Pick {x} = {v}")
+                self.level += 1
+                self.assignments[x] = v
+                self.branching_var.add(x)
+                self.guess_trail[self.level] = x
+                self.propagation_trail[self.level] = []
+                self.update_graph(x)
         return self.assignments
 
     def unit_propagation(self):
@@ -74,50 +84,113 @@ class CDCLSolver:
                 else:
                     self.assignments[abs(unit_literal)] = FALSE
                 # Add propagation trail if level > 0, we don't care if unit prop happened in level 0
+                self.update_graph(abs(unit_literal), clause)
                 if self.level > 0:
                     self.propagation_trail[self.level].append(unit_literal)
                     self.reason[abs(unit_literal)] = clause
 
     def all_variable_assigned(self):
         """Returns true if all variables have assignment"""
-        for assignment in self.assignments.values():
-            if assignment == UNDEFINED:
-                return False
-        return True
+        all_assigned = all(var in self.assignments for var in self.atomic_prop)
+        none_unassigned = not any(var for var in self.atomic_prop if self.assignments[var] == UNDEFINED)
+        return all_assigned and none_unassigned
 
     def pick_branching_var(self):
         """Pick a variable to branch, the first unassigned variable that does not make any clause UNSAT"""
-        for variable, assignment in self.assignments.items():
-            if assignment == UNDEFINED:
-                if self.is_value_sat_in_formula(variable, TRUE):
-                    return variable, TRUE
-                if self.is_value_sat_in_formula(variable, FALSE):
-                    return variable, FALSE
-        return None, UNDEFINED
+        return random.choice(list(self.all_unassigned_vars())), random.sample([TRUE, FALSE], 1)[0]
 
     def conflict_analysis(self, conflict_clause):
         """Perform conflict analysis and return the level to back jump to"""
         logging.info(f"Performing conflict analysis on clause {conflict_clause} at {self.level}")
+        # if self.level == 0:
+        #     return -1, None
+        # c = conflict_clause
+        # while True:
+        #     dependent_vars = self.find_dependencies(c, self.level)
+        #     # If there's only 1 dependent vars then we are done and ready to back jump
+        #     if len(dependent_vars) == 1:
+        #         # If unit clause, go back to level 0
+        #         if len(c) == 1:
+        #             return 0, c
+        #         bj_level = self.level - 1
+        #         # Check which level to back jump to
+        #         while bj_level >= 0:
+        #             if len(self.find_dependencies(c, bj_level)) == 1:
+        #                 break
+        #             bj_level -= 1
+        #         return bj_level, c
+        #     # Update c by resolving c with a dependency's cause
+        #     dependent_var = dependent_vars[-1]
+        #     c = self.resolution(c, self.reason[abs(dependent_var)], dependent_var)
+
+        """
+        Analyze the most recent conflict and learn a new clause from the conflict.
+        - Find the cut in the implication graph that led to the conflict
+        - Derive a new clause which is the negation of the assignments that led to the conflict
+
+        Returns a decision level to be backtracked to.
+        :param conf_cls: (set of int) the clause that introduces the conflict
+        :return: ({int} level to backtrack to, {set(int)} clause learnt)
+        """
+
+        def next_recent_assigned(clause):
+            """
+            According to the assign history, separate the latest assigned variable
+            with the rest in `clause`
+            :param clause: {set of int} the clause to separate
+            :return: ({int} variable, [int] other variables in clause)
+            """
+            for v in reversed(assign_history):
+                if v in clause or -v in clause:
+                    return v, [x for x in clause if abs(x) != abs(v)]
+
         if self.level == 0:
             return -1, None
-        c = conflict_clause
+
+        logging.info('conflict clause: %s', conflict_clause)
+
+        assign_history = [self.guess_trail[self.level]] + list(self.propagation_trail[self.level])
+        logging.info('assign history for level %s: %s', self.level, assign_history)
+
+        pool_lits = conflict_clause
+        done_lits = set()
+        curr_level_lits = set()
+        prev_level_lits = set()
+
         while True:
-            dependent_vars = self.find_dependencies(c, self.level)
-            # If there's only 1 dependent vars then we are done and ready to back jump
-            if len(dependent_vars) == 1:
-                # If unit clause, go back to level 0
-                if len(c) == 1:
-                    return 0, c
-                bj_level = self.level - 1
-                # Check which level to back jump to
-                while bj_level >= 0:
-                    if len(self.find_dependencies(c, bj_level)) == 1:
-                        break
-                    bj_level -= 1
-                return bj_level, c
-            # Update c by resolving c with a dependency's cause
-            dependent_var = dependent_vars[-1]
-            c = self.resolution(c, self.reason[abs(dependent_var)], dependent_var)
+            logging.info('-------')
+            logging.info('pool lits: %s', pool_lits)
+            for lit in pool_lits:
+                if self.implication_graph[abs(lit)].level == self.level:
+                    curr_level_lits.add(lit)
+                else:
+                    prev_level_lits.add(lit)
+
+            logging.info('curr level lits: %s', curr_level_lits)
+            logging.info('prev level lits: %s', prev_level_lits)
+            if len(curr_level_lits) == 1:
+                break
+
+            last_assigned, others = next_recent_assigned(curr_level_lits)
+            logging.info('last assigned: %s, others: %s', last_assigned, others)
+
+            done_lits.add(abs(last_assigned))
+            curr_level_lits = set(others)
+
+            pool_clause = self.implication_graph[abs(last_assigned)].clause
+            pool_lits = [
+                l for l in pool_clause if abs(l) not in done_lits
+            ] if pool_clause is not None else []
+
+            logging.info('done lits: %s', done_lits)
+
+        learnt = frozenset([l for l in curr_level_lits.union(prev_level_lits)])
+        if prev_level_lits:
+            level = max([self.implication_graph[abs(x)].level for x in prev_level_lits])
+        else:
+            level = self.level - 1
+
+        return level, learnt
 
     def find_dependencies(self, clause, level):
         """Find dependency of a variable"""
@@ -131,21 +204,50 @@ class CDCLSolver:
         return dependencies
 
     def backtrack(self, backtrack_level):
-        logging.info(f"Backtracking to decision level {backtrack_level}")
-        logging.info(f"Reason: {self.reason}")
-        for i in range(backtrack_level + 1, self.level + 1):
-            logging.info(f"Popping decision level {i}")
-            # Unassign guess trail
-            self.assignments[abs(self.guess_trail[i])] = UNDEFINED
-            del self.reason[abs(self.guess_trail[i])]
-            # Unassign propagation trail
-            for prop in self.propagation_trail[i]:
-                self.assignments[abs(prop)] = UNDEFINED
-                self.reason.pop(abs(prop), None)
-            # Delete reason, guess trail, propagation trail
-            del self.guess_trail[i]
-            del self.propagation_trail[i]
+        """
+        Non-chronologically backtrack ("back jump") to the appropriate decision level,
+        where the first-assigned variable involved in the conflict was assigned
+        """
+        logging.debug('backtracking to %s', backtrack_level)
+        for var, node in self.implication_graph.items():
+            if node.level <= backtrack_level:
+                node.children[:] = [child for child in node.children if child.level <= backtrack_level]
+            else:
+                node.value = UNDEFINED
+                node.level = -1
+                node.parents = []
+                node.children = []
+                node.clause = None
+                self.assignments[node.variable] = UNDEFINED
+
+        self.branching_var = set([
+            var for var in self.atomic_prop
+            if (self.assignments[var] != UNDEFINED
+                and len(self.implication_graph[var].parents) == 0)
+        ])
+
+        levels = list(self.propagation_trail.keys())
+        for k in levels:
+            if k <= backtrack_level:
+                continue
+            del self.guess_trail[k]
+            del self.propagation_trail[k]
+
         self.level = backtrack_level
+        logging.info('after backtracking, graph:\n%s', self.implication_graph)
+
+    def update_graph(self, var, clause=None):
+        node = self.implication_graph[var]
+        node.value = self.assignments[var]
+        node.level = self.level
+
+        # update parents
+        if clause:  # clause is None, meaning this is branching, no parents to update
+            for v in [abs(lit) for lit in clause if abs(lit) != var]:
+                node.parents.append(self.implication_graph[v])
+                self.implication_graph[v].children.append(node)
+            node.clause = clause
+            logging.info('node %s has parents: %s', var, node.parents)
 
     @staticmethod
     def resolution(c1, c2, prop=None):
@@ -237,6 +339,36 @@ class CDCLSolver:
             if assignment == UNDEFINED:
                 return False
         return True
+
+    def all_unassigned_vars(self):
+        return filter(
+            lambda v: v in self.assignments and self.assignments[v] == UNDEFINED, self.atomic_prop)
+
+
+class Node:
+
+    def __init__(self, variable, value):
+        self.variable = variable
+        self.value = value
+        self.level = -1
+        self.parents = []
+        self.children = []
+        self.clause = None
+
+    def all_parents(self):
+        ans = set(self.parents)
+        for parent in self.parents:
+            for p in parent.all_parents():
+                ans.add(p)
+        return list(ans)
+
+    def __str__(self):
+        sign = '+' if self.value == TRUE else '-' if self.value == FALSE else '?'
+        return "[{}{}:L{}, {}p, {}c, {}]".format(
+            sign, self.variable, self.level, len(self.parents), len(self.children), self.clause)
+
+    def __repr__(self):
+        return str(self)
 
 
 if __name__ == "__main__":
