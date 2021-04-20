@@ -1,5 +1,6 @@
 import logging
 import random
+from collections import deque
 
 from main import logger
 from main import parser
@@ -16,12 +17,12 @@ class CDCLSolver:
         logging.info("---------Initializing CDCL Solver---------")
         self.filepath = filepath
         self.clauses = parser.read_file_and_parse(filepath)
-        self.learnt_clauses = set()
         self.atomic_prop = self.get_ap(self.clauses)
-        self.implication_graph = dict((v, Node(v, UNDEFINED)) for v in self.atomic_prop)
+        self.learnt_clauses = set()
         self.assignments = {i: UNDEFINED for i in self.atomic_prop}
 
         self.level = 0
+        self.implication_graph = dict((v, Node(v, UNDEFINED)) for v in self.atomic_prop)
         self.branching_var = set()
         self.guess_trail = {}  # keep track of guesses
         self.propagation_trail = {}  # dict - level:int -> literals:set, keep track of unit propagations
@@ -29,18 +30,16 @@ class CDCLSolver:
         self.num_PBV_invocations = 0  # number of pick branching var invocations
 
     def solve(self):
-        if self.unit_propagation():
-            return "UNSAT"
         while not self.all_variable_assigned():
             logging.info(f"Current decision level = {self.level}")
             conflict = self.unit_propagation()
             if conflict:
-                backtrack_level, learn_clause = self.conflict_analysis(conflict)
+                backtrack_level, learnt_clause = self.conflict_analysis(conflict)
                 if backtrack_level < 0:
                     return "UNSAT"
                 else:
-                    logging.info(f"Adding clause {learn_clause}")
-                    self.learnt_clauses.add(frozenset(learn_clause))
+                    logging.info(f"Adding clause {learnt_clause}")
+                    self.learnt_clauses.add(learnt_clause)
                     self.backtrack(backtrack_level)
             elif self.all_variable_assigned():
                 break
@@ -51,7 +50,7 @@ class CDCLSolver:
                 self.assignments[x] = v
                 self.branching_var.add(x)
                 self.guess_trail[self.level] = x
-                self.propagation_trail[self.level] = []
+                self.propagation_trail[self.level] = deque()
                 self.update_graph(x)
         return self.assignments
 
@@ -59,7 +58,7 @@ class CDCLSolver:
         while True:
             # A list of clauses that we will propagate in this iteration
             clauses_to_propagate = []
-            for clause in self.clauses:
+            for clause in self.clauses.union(self.learnt_clauses):
                 clause_value = self.clause_value(clause)
                 # logging.debug(f"Check clause {clause}")
                 # Check if conflict is found, return the clause that caused the conflict
@@ -304,13 +303,13 @@ class CDCLSolver:
 
     def literal_value(self, literal):
         """Check if a literal is SAT based on current assignments"""
-        assignment = self.assignments[abs(literal)]
-        if assignment == UNDEFINED:
+        value = self.assignments[abs(literal)]
+        if value == UNDEFINED:
             return UNDEFINED
         if literal < 0:
-            return TRUE if assignment == FALSE else FALSE
+            return TRUE if value == FALSE else FALSE
         else:
-            return TRUE if assignment == TRUE else FALSE
+            return TRUE if value == TRUE else FALSE
 
     def get_all_unit_clauses(self):
         """Get all unit clauses"""
@@ -344,6 +343,9 @@ class CDCLSolver:
         return filter(
             lambda v: v in self.assignments and self.assignments[v] == UNDEFINED, self.atomic_prop)
 
+    def checkSAT(self):
+        return self.formula_value(self.clauses)
+
 
 class Node:
 
@@ -372,5 +374,6 @@ class Node:
 
 
 if __name__ == "__main__":
-    solver = CDCLSolver("../data/base_case.txt")
-    print("Answer ", solver.solve())
+    solver = CDCLSolver("../data/CBS_k3_n100_m403_b10_0.cnf")
+    print("Answer: ", solver.solve())
+    print("Verify: ", solver.checkSAT())

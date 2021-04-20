@@ -93,4 +93,4 @@ def ap_phi(phi):
 
 
 if __name__ == "__main__":
-    print(DPLL("../data/base_case.txt"))
+    print(DPLL("../data/base_case.cnf"))
