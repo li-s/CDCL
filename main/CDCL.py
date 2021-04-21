@@ -14,7 +14,7 @@ UNDEFINED = -1
 
 class CDCLSolver:
 
-    def __init__(self, filepath):
+    def __init__(self, filepath, PBV_heuristic="DLIS"):
         logger.init_logger()
         logging.info("---------Initializing CDCL Solver---------")
         self.filepath = filepath
@@ -30,6 +30,7 @@ class CDCLSolver:
         self.propagation_trail = {}  # dict - level:int -> literals:set, keep track of unit propagations
         self.reason = {}  # dict - literal:int -> clause:set
         self.num_PBV_invocations = 0  # number of pick branching var invocations
+        self.PBV_heuristic = PBV_heuristic
 
     def solve(self):
         while not self.all_variable_assigned():
@@ -97,21 +98,27 @@ class CDCLSolver:
         return all_assigned and none_unassigned
 
     def pick_branching_var(self):
-        """Pick a variable to branch, the first unassigned variable that does not make any clause UNSAT"""
-        self.num_PBV_invocations += 1
-        variables = {}
-        unassigned = list(self.all_unassigned_vars())
-        for clause in self.clauses.union(self.learnt_clauses):
-            for prop in clause:
-                if prop in variables and abs(prop) in unassigned:
-                    variables[prop] += 1
-                else:
-                    variables[prop] = 1
-        variable = max(variables.items(), key=operator.itemgetter(1))[0]
-        assign = TRUE if variable > 0 else FALSE
-        return abs(variable), assign
-        # return random.choice(list(self.all_unassigned_vars())), random.sample([TRUE, FALSE], 1)[0]
-        # return list(self.all_unassigned_vars())[0], TRUE
+        """Pick a variable to branch"""
+        #
+        if self.PBV_heuristic == "DLIS":
+            self.num_PBV_invocations += 1
+            variables = {}
+            unassigned = list(self.all_unassigned_vars())
+            for clause in self.clauses.union(self.learnt_clauses):
+                for prop in clause:
+                    if abs(prop) not in unassigned:
+                        continue
+                    if prop in variables:
+                        variables[prop] += 1
+                    else:
+                        variables[prop] = 1
+            variable = max(variables.items(), key=operator.itemgetter(1))[0]
+            assign = TRUE if variable > 0 else FALSE
+            return abs(variable), assign
+        elif self.PBV_heuristic == "Random":
+            return random.choice(list(self.all_unassigned_vars())), random.sample([TRUE, FALSE], 1)[0]
+        elif self.PBV_heuristic == "Ordered":
+            return list(self.all_unassigned_vars())[0], TRUE
 
     def conflict_analysis(self, conflict_clause):
         """Perform conflict analysis and return the level to back jump to"""
@@ -370,7 +377,7 @@ class Node:
         self.level = -1
         self.parents = []
         self.children = []
-        self.clause = None
+        self.clause = None      # The clause that caused unit prop
 
     def all_parents(self):
         ans = set(self.parents)
@@ -389,10 +396,10 @@ class Node:
 
 
 if __name__ == "__main__":
-    num_tries = 10
+    num_tries = 1
     t1 = time.time()
     for i in range(num_tries):
-        solver = CDCLSolver("../data/CBS_k3_n100_m403_b10_0.cnf")
+        solver = CDCLSolver("../data/16v18c.cnf", "DLIS")
         print("Answer: ", solver.solve())
         print("Verify: ", solver.checkSAT())
     t2 = time.time()
