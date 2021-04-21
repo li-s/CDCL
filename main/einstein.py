@@ -1,4 +1,6 @@
 import re
+import time
+from CDCL import CDCLSolver
 
 
 categories = {
@@ -150,6 +152,11 @@ def initialize_constrains(fol):
                     constrains.append((-key, -i))
         else:
             counter += 1
+            for i in range(key + 1, (counter + 1) * 25 + 1):
+                if int(abs(i - 1) / 5) == int(abs(key - 1) / 5):
+                    constrains.append((-key, -i))
+                if i % 5 == key % 5:
+                    constrains.append((-key, -i))
 
     return constrains
 
@@ -181,3 +188,11 @@ def convert_mapping_to_ans(mapping):
 if __name__ == "__main__":
     with open('../data/einstein.cnf', 'w') as f:
         f.write(generate_cnf(generate_fol()))
+        f.close()
+    t1 = time.time()
+    solver = CDCLSolver("../data/einstein.cnf")
+    ans = solver.solve()
+    t2 = time.time()
+    print(t2 - t1)
+    print(solver.num_PBV_invocations)
+    print(convert_mapping_to_ans(ans))
