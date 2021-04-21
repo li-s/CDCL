@@ -1,5 +1,7 @@
 import logging
+import operator
 import random
+import time
 from collections import deque
 
 from main import logger
@@ -96,7 +98,19 @@ class CDCLSolver:
 
     def pick_branching_var(self):
         """Pick a variable to branch, the first unassigned variable that does not make any clause UNSAT"""
-        return random.choice(list(self.all_unassigned_vars())), random.sample([TRUE, FALSE], 1)[0]
+        # variables = {}
+        # unassigned = list(self.all_unassigned_vars())
+        # for clause in self.clauses.union(self.learnt_clauses):
+        #     for prop in clause:
+        #         if prop in variables and abs(prop) in unassigned:
+        #             variables[prop] += 1
+        #         else:
+        #             variables[prop] = 1
+        # variable = max(variables.items(), key=operator.itemgetter(1))[0]
+        # assign = TRUE if variable > 0 else FALSE
+        # return abs(variable), assign
+        # return random.choice(list(self.all_unassigned_vars())), random.sample([TRUE, FALSE], 1)[0]
+        return list(self.all_unassigned_vars())[0], TRUE
 
     def conflict_analysis(self, conflict_clause):
         """Perform conflict analysis and return the level to back jump to"""
@@ -374,6 +388,11 @@ class Node:
 
 
 if __name__ == "__main__":
-    solver = CDCLSolver("../data/CBS_k3_n100_m403_b10_0.cnf")
-    print("Answer: ", solver.solve())
-    print("Verify: ", solver.checkSAT())
+    num_tries = 10
+    t1 = time.time()
+    for i in range(num_tries):
+        solver = CDCLSolver("../data/CBS_k3_n100_m403_b10_0.cnf")
+        print("Answer: ", solver.solve())
+        print("Verify: ", solver.checkSAT())
+    t2 = time.time()
+    print("Time: ", (t2 - t1) / num_tries)
