@@ -4,6 +4,7 @@ from collections import deque
 
 from main import logger
 from main import parser
+from main import einstein
 
 TRUE = 1
 FALSE = 0
@@ -374,6 +375,8 @@ class Node:
 
 
 if __name__ == "__main__":
-    solver = CDCLSolver("../data/CBS_k3_n100_m403_b10_0.cnf")
-    print("Answer: ", solver.solve())
-    print("Verify: ", solver.checkSAT())
+    solver = CDCLSolver("../data/einstein.cnf")
+    # print("Answer: ", solver.solve())
+    # print("Verify: ", solver.checkSAT())
+    print("water" in ['water', 'help'])
+    print(einstein.convert_mapping_to_ans(solver.solve()))
