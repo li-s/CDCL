@@ -224,14 +224,7 @@ class CDCLSolver:
                 self.assignments[node.variable] = UNDEFINED
 
         # Remove branching variable list according to implication graph
-        # print("Before " + str(self.branching_var))
-        # print(self.assignments)
-        self.branching_var = set([
-            var for var in self.atomic_prop
-            if (self.assignments[var] != UNDEFINED
-                and len(self.implication_graph[var].parents) == 0)
-        ])
-        # print(self.branching_var)
+        self.branching_var = set(filter(lambda v: self.assignments[v] != UNDEFINED, self.branching_var))
 
         levels = list(self.propagation_trail.keys())
         for k in levels:
