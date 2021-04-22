@@ -28,7 +28,6 @@ class CDCLSolver:
         self.branching_var = set()
         self.guess_trail = {}  # keep track of guesses
         self.propagation_trail = {}  # dict - level:int -> literals:set, keep track of unit propagations
-        self.reason = {}  # dict - literal:int -> clause:set
         self.num_PBV_invocations = 0  # number of pick branching var invocations
         self.PBV_heuristic = PBV_heuristic
 
@@ -38,7 +37,7 @@ class CDCLSolver:
             conflict = self.unit_propagation()
             if conflict:
                 backtrack_level, learnt_clause = self.conflict_analysis(conflict)
-                if backtrack_level < 0:
+                if backtrack_level <= 0:
                     return "UNSAT"
                 else:
                     logging.info(f"Adding clause {learnt_clause}")
@@ -85,11 +84,10 @@ class CDCLSolver:
                     self.assignments[abs(unit_literal)] = TRUE
                 else:
                     self.assignments[abs(unit_literal)] = FALSE
-                # Add propagation trail if level > 0, we don't care if unit prop happened in level 0
                 self.update_graph(abs(unit_literal), clause)
+                # Add propagation trail if level > 0, we don't care if unit prop happened in level 0
                 if self.level > 0:
                     self.propagation_trail[self.level].append(unit_literal)
-                    self.reason[abs(unit_literal)] = clause
 
     def all_variable_assigned(self):
         """Returns true if all variables have assignment"""
@@ -122,28 +120,6 @@ class CDCLSolver:
 
     def conflict_analysis(self, conflict_clause):
         """Perform conflict analysis and return the level to back jump to"""
-        logging.info(f"Performing conflict analysis on clause {conflict_clause} at {self.level}")
-        # if self.level == 0:
-        #     return -1, None
-        # c = conflict_clause
-        # while True:
-        #     dependent_vars = self.find_dependencies(c, self.level)
-        #     # If there's only 1 dependent vars then we are done and ready to back jump
-        #     if len(dependent_vars) == 1:
-        #         # If unit clause, go back to level 0
-        #         if len(c) == 1:
-        #             return 0, c
-        #         bj_level = self.level - 1
-        #         # Check which level to back jump to
-        #         while bj_level >= 0:
-        #             if len(self.find_dependencies(c, bj_level)) == 1:
-        #                 break
-        #             bj_level -= 1
-        #         return bj_level, c
-        #     # Update c by resolving c with a dependency's cause
-        #     dependent_var = dependent_vars[-1]
-        #     c = self.resolution(c, self.reason[abs(dependent_var)], dependent_var)
-
         """
         Analyze the most recent conflict and learn a new clause from the conflict.
         - Find the cut in the implication graph that led to the conflict
@@ -153,20 +129,7 @@ class CDCLSolver:
         :param conf_cls: (set of int) the clause that introduces the conflict
         :return: ({int} level to backtrack to, {set(int)} clause learnt)
         """
-
-        def next_recent_assigned(clause):
-            """
-            According to the assign history, separate the latest assigned variable
-            with the rest in `clause`
-            :param clause: {set of int} the clause to separate
-            :return: ({int} variable, [int] other variables in clause)
-            """
-            for v in reversed(assign_history):
-                if v in clause or -v in clause:
-                    return v, [x for x in clause if abs(x) != abs(v)]
-
-        if self.level == 0:
-            return -1, None
+        logging.info(f"Performing conflict analysis on clause {conflict_clause} at {self.level}")
 
         logging.info('conflict clause: %s', conflict_clause)
 
@@ -192,7 +155,7 @@ class CDCLSolver:
             if len(curr_level_lits) == 1:
                 break
 
-            last_assigned, others = next_recent_assigned(curr_level_lits)
+            last_assigned, others = self.next_recent_assigned(curr_level_lits, assign_history)
             logging.info('last assigned: %s, others: %s', last_assigned, others)
 
             done_lits.add(abs(last_assigned))
@@ -230,10 +193,13 @@ class CDCLSolver:
         where the first-assigned variable involved in the conflict was assigned
         """
         logging.debug('backtracking to %s', backtrack_level)
+        # Update implication graph
         for var, node in self.implication_graph.items():
             if node.level <= backtrack_level:
-                node.children[:] = [child for child in node.children if child.level <= backtrack_level]
+                # If keep node, remove all children with decision level higher than backtrack level
+                node.children = list(filter(lambda child: child.level <= backtrack_level, node.children))
             else:
+                # Else remove node entirely
                 node.value = UNDEFINED
                 node.level = -1
                 node.parents = []
@@ -241,11 +207,15 @@ class CDCLSolver:
                 node.clause = None
                 self.assignments[node.variable] = UNDEFINED
 
+        # Remove branching variable list according to implication graph
+        # print("Before " + str(self.branching_var))
+        # print(self.assignments)
         self.branching_var = set([
             var for var in self.atomic_prop
             if (self.assignments[var] != UNDEFINED
                 and len(self.implication_graph[var].parents) == 0)
         ])
+        # print(self.branching_var)
 
         levels = list(self.propagation_trail.keys())
         for k in levels:
@@ -258,17 +228,18 @@ class CDCLSolver:
         logging.info('after backtracking, graph:\n%s', self.implication_graph)
 
     def update_graph(self, var, clause=None):
+        """Update the implication graph for a variable, insert propagation clause if needed"""
         node = self.implication_graph[var]
         node.value = self.assignments[var]
         node.level = self.level
+        node.clause = clause
 
-        # update parents
-        if clause:  # clause is None, meaning this is branching, no parents to update
+        # update reason for propagation (parents) if needed
+        if clause:
             for v in [abs(lit) for lit in clause if abs(lit) != var]:
                 node.parents.append(self.implication_graph[v])
                 self.implication_graph[v].children.append(node)
-            node.clause = clause
-            logging.info('node %s has parents: %s', var, node.parents)
+            logging.info('Updated node %s with parents: %s', var, node.parents)
 
     @staticmethod
     def resolution(c1, c2, prop=None):
@@ -361,6 +332,20 @@ class CDCLSolver:
                 return False
         return True
 
+    def next_recent_assigned(self, clause, assign_history):
+        """
+        According to the assign history, separate the latest assigned variable
+        with the rest in `clause`
+        :param clause: {set of int} the clause to separate
+        :return: ({int} variable, [int] other variables in clause)
+        """
+        for v in reversed(assign_history):
+            if v in clause or -v in clause:
+                return v, [x for x in clause if abs(x) != abs(v)]
+
+        if self.level == 0:
+            return -1, None
+
     def all_unassigned_vars(self):
         return filter(
             lambda v: v in self.assignments and self.assignments[v] == UNDEFINED, self.atomic_prop)
@@ -399,7 +384,7 @@ if __name__ == "__main__":
     num_tries = 1
     t1 = time.time()
     for i in range(num_tries):
-        solver = CDCLSolver("../data/16v18c.cnf", "DLIS")
+        solver = CDCLSolver("../data/game.cnf", "DLIS")
         print("Answer: ", solver.solve())
         print("Verify: ", solver.checkSAT())
     t2 = time.time()
