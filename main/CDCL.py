@@ -37,7 +37,7 @@ class CDCLSolver:
             conflict = self.unit_propagation()
             if conflict:
                 backtrack_level, learnt_clause = self.conflict_analysis(conflict)
-                if backtrack_level <= 0:
+                if backtrack_level < 0:
                     return "UNSAT"
                 else:
                     logging.info(f"Adding clause {learnt_clause}")
@@ -97,9 +97,8 @@ class CDCLSolver:
 
     def pick_branching_var(self):
         """Pick a variable to branch"""
-        #
+        self.num_PBV_invocations += 1
         if self.PBV_heuristic == "DLIS":
-            self.num_PBV_invocations += 1
             variables = {}
             unassigned = list(self.all_unassigned_vars())
             for clause in self.clauses.union(self.learnt_clauses):
@@ -117,6 +116,21 @@ class CDCLSolver:
             return random.choice(list(self.all_unassigned_vars())), random.sample([TRUE, FALSE], 1)[0]
         elif self.PBV_heuristic == "Ordered":
             return list(self.all_unassigned_vars())[0], TRUE
+        elif self.PBV_heuristic == "2Clause":
+            variables = {}
+            unassigned = list(self.all_unassigned_vars())
+            for clause in filter(lambda x: self.check_two_clause(x), self.clauses.union(self.learnt_clauses)):
+                for prop in clause:
+                    if abs(prop) not in unassigned:
+                        continue
+                    if prop in variables:
+                        variables[prop] += 1
+                    else:
+                        variables[prop] = 1
+            variable = random.choice(max(variables.items(), key=operator.itemgetter(1))) if len(variables) != 0 \
+                else random.choice(list(self.all_unassigned_vars()))
+            assign = TRUE if variable > 0 else FALSE
+            return abs(variable), assign
 
     def conflict_analysis(self, conflict_clause):
         """Perform conflict analysis and return the level to back jump to"""
@@ -130,8 +144,10 @@ class CDCLSolver:
         :return: ({int} level to backtrack to, {set(int)} clause learnt)
         """
         logging.info(f"Performing conflict analysis on clause {conflict_clause} at {self.level}")
-
         logging.info('conflict clause: %s', conflict_clause)
+
+        if self.level == 0:
+            return -1, None
 
         assign_history = [self.guess_trail[self.level]] + list(self.propagation_trail[self.level])
         logging.info('assign history for level %s: %s', self.level, assign_history)
@@ -343,12 +359,13 @@ class CDCLSolver:
             if v in clause or -v in clause:
                 return v, [x for x in clause if abs(x) != abs(v)]
 
-        if self.level == 0:
-            return -1, None
-
     def all_unassigned_vars(self):
         return filter(
             lambda v: v in self.assignments and self.assignments[v] == UNDEFINED, self.atomic_prop)
+
+    def check_two_clause(self, clause):
+        num_unassigned = sum([1 for lit in clause if self.assignments[abs(lit)] == UNDEFINED])
+        return num_unassigned == 2
 
     def checkSAT(self):
         return self.formula_value(self.clauses)
@@ -384,7 +401,7 @@ if __name__ == "__main__":
     num_tries = 1
     t1 = time.time()
     for i in range(num_tries):
-        solver = CDCLSolver("../data/game.cnf", "DLIS")
+        solver = CDCLSolver("../data/game.cnf", "2Clause")
         print("Answer: ", solver.solve())
         print("Verify: ", solver.checkSAT())
     t2 = time.time()

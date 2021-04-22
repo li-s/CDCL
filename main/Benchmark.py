@@ -3,7 +3,7 @@ import time
 from CDCL import CDCLSolver
 
 
-def test_all(root):
+def test_all(root, PBV_heuristic="DLIS"):
     for directory in os.listdir(root):
         full_dir = os.path.join(root, directory)
         if directory.startswith("uuf"):
@@ -14,7 +14,7 @@ def test_all(root):
             test(full_dir, "SAT")
 
 
-def test(directory, sat="SAT"):
+def test(directory, sat="SAT", PBV_heuristic="DLIS"):
     start_time = time.time()
     total_branching = 0
     index = 1
@@ -23,7 +23,7 @@ def test(directory, sat="SAT"):
     for test_input in os.listdir(directory):
         # print(test_input)
         if test_input.endswith(".cnf"):
-            solver = CDCLSolver(os.path.join(directory, test_input))
+            solver = CDCLSolver(os.path.join(directory, test_input), PBV_heuristic)
             answer = solver.solve()
             total_branching += solver.num_PBV_invocations
             if not check_answer(answer, sat):
@@ -48,4 +48,4 @@ def check_answer(answer, sat):
 
 
 if __name__ == "__main__":
-    test("../data/test/uuf50-218", "UNSAT")
+    test("../data/test/uuf50-218", "UNSAT", "2Clause")
