@@ -21,7 +21,7 @@ def test(directory, sat="SAT", PBV_heuristic="DLIS"):
     alert_interval = set([i * int(num_total_test / 10) for i in range(1, 11)])
     total_time = 0
     for test_input in os.listdir(directory):
-        # print(index)
+        print(index)
         if test_input.endswith(".cnf"):
             start_time = time.time()
             solver = CDCLSolver(os.path.join(directory, test_input), PBV_heuristic)
@@ -50,6 +50,6 @@ def check_answer(answer, sat):
 
 
 if __name__ == "__main__":
-    heuristic = ["DLIS", "DLCS", "RDLCS", "Random", "Ordered", "2-Clause"]
-    for h in heuristic:
-        test("../data/test/uf50-218", "SAT", h)
+    # heuristic = ["DLIS", "DLCS", "RDLCS", "Random", "Ordered", "2-Clause"]
+    # for h in heuristic:
+    test("../data/test/uf150-645", "SAT", "DLIS")

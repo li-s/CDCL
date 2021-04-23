@@ -15,7 +15,7 @@ UNDEFINED = -1
 
 class CDCLSolver:
 
-    def __init__(self, filepath, PBV_heuristic="DLIS"):
+    def __init__(self, filepath, PBV_heuristic="DLIS", restart=True):
         logger.init_logger()
         logging.info("---------Initializing CDCL Solver---------")
         self.filepath = filepath
@@ -32,7 +32,12 @@ class CDCLSolver:
         self.num_PBV_invocations = 0  # number of pick branching var invocations
         self.PBV_heuristic = PBV_heuristic
         self.vsid_activity = {lit: 0 for lit in self.atomic_prop} # Weight for VSID
-        self.vsid_decay = 0.95
+        self.vsid_decay = 0.3
+
+        self.restart = restart
+        self.restart_counter = 0
+        self.restart_factor = 1.1
+        self.restart_threshold = 100
 
     def solve(self):
         while not self.all_variable_assigned():
@@ -51,6 +56,20 @@ class CDCLSolver:
             elif self.all_variable_assigned():
                 break
             else:
+                if self.restart:
+                    # Perform restart if threshold is reached
+                    self.restart_counter += 1
+                    if self.restart_counter == self.restart_threshold:
+                        self.assignments = {lit: UNDEFINED for lit in self.atomic_prop}
+                        self.branching_var = set()
+                        self.guess_trail = {}
+                        self.propagation_trail = {}
+                        self.implication_graph = dict((v, Node(v, UNDEFINED)) for v in self.atomic_prop)
+                        self.vsid_activity = {lit: 0 for lit in self.atomic_prop}
+                        self.level = 0
+                        self.restart_threshold *= 1.1
+                        continue
+
                 x, v = self.pick_branching_var()
                 logging.info(f"Pick {x} = {v}")
                 self.level += 1
@@ -105,9 +124,53 @@ class CDCLSolver:
         """Pick a variable to branch"""
         self.num_PBV_invocations += 1
 
+        if self.PBV_heuristic == "surprise_me":
+            self.PBV_heuristic = random.choice(["DLIS", "Lishuo", "Random", "VSID", "MOM", "JW"])
+            return self.pick_branching_var()
+
         if self.PBV_heuristic == "DLIS":
             variables = self.count_unassigned_literals(self.clauses.union(self.learnt_clauses))
             variable = max(variables.items(), key=operator.itemgetter(1))[0]
+            assign = TRUE if variable > 0 else FALSE
+            return abs(variable), assign
+
+        if self.PBV_heuristic == "Lishuo":
+
+            # def count_var(v):
+            #     print(v)
+            #     if isinstance(v, int):
+            #         return v
+            #     total = 0
+            #     for item in v:
+            #         total += count_var(item)
+            #     return total
+
+            variables = {}
+            variables2 = {}
+            unassigned = list(self.all_unassigned_vars())
+            two_clause = set()
+            for clause in self.clauses.union(self.learnt_clauses):
+                if self.check_two_clause(clause):
+                    two_clause.add(clause)
+                for lit in clause:
+                    if abs(lit) not in unassigned:
+                        continue
+                    if lit in variables:
+                        variables[lit] += 1
+                        variables2[lit] += 1
+                    else:
+                        variables[lit] = 1
+                        variables2[lit] = 1
+
+            # two_clause = set(filter(lambda x: self.check_two_clause(x), self.clauses.union(self.learnt_clauses)))
+            for clause in two_clause:
+                clause = list(clause)
+                if abs(clause[0]) in unassigned and -clause[0] in variables2 and clause[1] in variables:
+                    variables2[-clause[0]] += variables[clause[1]]
+                if abs(clause[1]) in unassigned and -clause[1] in variables2 and clause[0] in variables:
+                    variables2[-clause[1]] += variables[clause[0]]
+
+            variable = max(variables2.items(), key=operator.itemgetter(1))[0]
             assign = TRUE if variable > 0 else FALSE
             return abs(variable), assign
 
@@ -180,7 +243,6 @@ class CDCLSolver:
                     variable = lit
             assign = TRUE if variable > 0 else FALSE
             return variable, assign
-
 
     def conflict_analysis(self, conflict_clause):
         """Perform conflict analysis and return the level to back jump to and learnt clause"""
@@ -500,5 +562,7 @@ if __name__ == "__main__":
         total_time += t2 - t1
         print("Answer: ", ans)
         print("Verify: ", solver.checkSAT())
+        print("Branching: ", solver.num_PBV_invocations)
+        print("Heuristic: ", solver.PBV_heuristic)
     print("Time: ", total_time / num_tries)
 
