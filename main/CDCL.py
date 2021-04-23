@@ -231,7 +231,13 @@ class CDCLSolver:
 
         if self.PBV_heuristic == "MOM":
             variables = self.count_unassigned_literals(self.get_unresolved_smallest_clauses())
-            variable = max(variables.items(), key=operator.itemgetter(1))[0]
+            scores = {}
+            k = 2
+            for lit, score in variables.items():
+                f_x = score
+                f_notx = variables.get(-lit, 0)
+                scores[lit] = (f_x + f_notx) * math.pow(2, k) + f_x * f_notx
+            variable = max(scores.items(), key=operator.itemgetter(1))[0]
             assign = TRUE if variable > 0 else FALSE
             return abs(variable), assign
 
@@ -565,7 +571,7 @@ if __name__ == "__main__":
     for i in range(num_tries):
         t1 = time.time()
         # solver = CDCLSolver("../data/test/uf150-645/uf150-01.cnf", "Lishuo")
-        solver = CDCLSolver("../data/test/uf100-430/uf100-04.cnf", "Lishuo")
+        solver = CDCLSolver("../data/test/uf100-430/uf100-04.cnf", "DLIS")
         ans = solver.solve()
         t2 = time.time()
         total_time += t2 - t1
