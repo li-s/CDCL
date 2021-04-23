@@ -4,6 +4,7 @@ import operator
 import random
 import time
 from collections import deque
+import copy
 
 from main import logger
 from main import parser
@@ -15,11 +16,11 @@ UNDEFINED = -1
 
 class CDCLSolver:
 
-    def __init__(self, filepath, PBV_heuristic="DLIS", restart=True):
+    def __init__(self, filepath, PBV_heuristic="DLIS", restart=False):
         logger.init_logger()
         logging.info("---------Initializing CDCL Solver---------")
         self.filepath = filepath
-        self.clauses = parser.read_file_and_parse(filepath)
+        self.clauses, self.num_variables = parser.read_file_and_parse(filepath)
         self.atomic_prop = self.get_ap(self.clauses)
         self.learnt_clauses = set()
         self.assignments = {lit: UNDEFINED for lit in self.atomic_prop}
@@ -165,12 +166,65 @@ class CDCLSolver:
             # two_clause = set(filter(lambda x: self.check_two_clause(x), self.clauses.union(self.learnt_clauses)))
             for clause in two_clause:
                 unassigned_lits = self.get_unassigned_literals_in_clause(clause)
-                if abs(unassigned_lits[0]) in unassigned and -unassigned_lits[0] in variables2 and unassigned_lits[1] in variables:
+                if -unassigned_lits[0] in variables2 and unassigned_lits[1] in variables:
                     variables2[-unassigned_lits[0]] += variables[unassigned_lits[1]]
-                if abs(unassigned_lits[1]) in unassigned and -unassigned_lits[1] in variables2 and unassigned_lits[0] in variables:
+                if -unassigned_lits[1] in variables2 and unassigned_lits[0] in variables:
                     variables2[-unassigned_lits[1]] += variables[unassigned_lits[0]]
 
             variable = max(variables2.items(), key=operator.itemgetter(1))[0]
+            assign = TRUE if variable > 0 else FALSE
+            return abs(variable), assign
+
+        if self.PBV_heuristic == "Lishuo2":
+
+            variables = {}
+            variables2 = {}
+            unassigned = list(self.all_unassigned_vars())
+            two_clause = set()
+            for clause in self.clauses.union(self.learnt_clauses):
+                if self.check_two_clause(clause):
+                    two_clause.add(clause)
+                for lit in clause:
+                    if abs(lit) not in unassigned:
+                        continue
+                    if lit in variables:
+                        variables[lit] += 1
+                    else:
+                        variables[lit] = 1
+
+            for i in range(1, self.num_variables + 1):
+                variables2[i] = {i, }
+                variables2[-i] = {-i,}
+
+            for clause in two_clause:
+                unassigned_lits = self.get_unassigned_literals_in_clause(clause)
+                variables2[-unassigned_lits[0]].add(unassigned_lits[1])
+                variables2[-unassigned_lits[1]].add(unassigned_lits[0])
+
+            variables3 = {}
+            temp = {}
+            for key, value in variables2.items():
+                variables3[key] = {key, }
+                for i in value:
+                    if i != key:
+                        variables3[key].update(list(variables2[i]))
+
+            # while temp != variables3:
+            #     temp = copy.deepcopy(variables3)
+            #     for key, value in temp.items():
+            #         for i in value:
+            #             if i != key:
+            #                 variables3[key].update(list(temp[i]))
+
+            summation = {}
+            for i, _ in variables3.items():
+                sums = 0
+                for j in variables3[i]:
+                    if j in variables:
+                        sums += variables[j]
+                summation[i] = sums
+
+            variable = max(summation.items(), key=operator.itemgetter(1))[0]
             assign = TRUE if variable > 0 else FALSE
             return abs(variable), assign
 
@@ -565,7 +619,7 @@ if __name__ == "__main__":
     for i in range(num_tries):
         t1 = time.time()
         # solver = CDCLSolver("../data/test/uf150-645/uf150-01.cnf", "Lishuo")
-        solver = CDCLSolver("../data/test/uf100-430/uf100-04.cnf", "Lishuo")
+        solver = CDCLSolver("../data/test/uf100-430/uf100-01.cnf", "Lishuo2")
         ans = solver.solve()
         t2 = time.time()
         total_time += t2 - t1

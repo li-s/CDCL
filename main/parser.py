@@ -22,4 +22,4 @@ def read_file_and_parse(file_name):
         clause = frozenset([int(i) for i in re.compile("\\s+").split(next_line) if i != "0"])
         cnf.add(clause)
 
-    return cnf
+    return cnf, num_variables
