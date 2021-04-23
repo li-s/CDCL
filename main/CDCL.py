@@ -285,7 +285,13 @@ class CDCLSolver:
 
         if self.PBV_heuristic == "MOM":
             variables = self.count_unassigned_literals(self.get_unresolved_smallest_clauses())
-            variable = max(variables.items(), key=operator.itemgetter(1))[0]
+            scores = {}
+            k = 2
+            for lit, score in variables.items():
+                f_x = score
+                f_notx = variables.get(-lit, 0)
+                scores[lit] = (f_x + f_notx) * math.pow(2, k) + f_x * f_notx
+            variable = max(scores.items(), key=operator.itemgetter(1))[0]
             assign = TRUE if variable > 0 else FALSE
             return abs(variable), assign
 
