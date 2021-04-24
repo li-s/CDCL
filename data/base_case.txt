@@ -1,5 +1,0 @@
-c A sample .cnf file.
-p cnf 4 3
-1 2 0
--2 3 0
--3 -1 0
