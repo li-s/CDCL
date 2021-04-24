@@ -1,11 +1,11 @@
 import re
 import logging
-from main import logger
+import my_logger
 
 
 def read_file_and_parse(file_name):
     """Read file and return CNF clauses"""
-    logger.init_logger()
+    my_logger.init_logger()
     f = open(file_name, "r")
     p_line = f.readline().strip()
     while p_line[0] == 'c':

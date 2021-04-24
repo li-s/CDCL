@@ -2,12 +2,12 @@ import logging
 import math
 import operator
 import random
+import sys
 import time
 from collections import deque
-import copy
 
-from main import logger
-from main import parser
+import my_logger
+import my_parser
 
 TRUE = 1
 FALSE = 0
@@ -17,10 +17,10 @@ UNDEFINED = -1
 class CDCLSolver:
 
     def __init__(self, filepath, PBV_heuristic="DLIS", restart=False):
-        logger.init_logger()
+        my_logger.init_logger()
         logging.info("---------Initializing CDCL Solver---------")
         self.filepath = filepath
-        self.clauses, self.num_variables = parser.read_file_and_parse(filepath)
+        self.clauses, self.num_variables = my_parser.read_file_and_parse(filepath)
         self.atomic_prop = self.get_ap(self.clauses)
         self.learnt_clauses = set()
         self.assignments = {lit: UNDEFINED for lit in self.atomic_prop}
@@ -74,6 +74,7 @@ class CDCLSolver:
                 x, v = self.pick_branching_var()
                 logging.info(f"Pick {x} = {v}")
                 self.level += 1
+                self.num_PBV_invocations += 1
                 self.assignments[x] = v
                 self.branching_var.add(x)
                 self.guess_trail[self.level] = x
@@ -88,13 +89,11 @@ class CDCLSolver:
             clauses_to_propagate = []
             for clause in self.clauses.union(self.learnt_clauses):
                 clause_value = self.clause_value(clause)
-                # logging.debug(f"Check clause {clause}")
                 # Check if conflict is found, return the clause that caused the conflict
                 if clause_value == FALSE:
                     logging.debug(f"Found conflict at {clause}")
                     return clause
                 if clause_value == UNDEFINED:
-                    # logging.debug(f"Found undefined clause: {clause}")
                     is_unit_clause, unit_literal = self.is_unit_clause(clause)
                     if is_unit_clause and (unit_literal, clause) not in clauses_to_propagate:
                         clauses_to_propagate.append((unit_literal, clause))
@@ -123,11 +122,29 @@ class CDCLSolver:
 
     def pick_branching_var(self):
         """Pick a variable to branch"""
-        self.num_PBV_invocations += 1
 
-        if self.PBV_heuristic == "surprise_me":
-            self.PBV_heuristic = random.choice(["DLIS", "Lishuo", "Random", "VSID", "MOM", "JW"])
+        if self.PBV_heuristic == "SurpriseMe":
+            self.PBV_heuristic = random.choice(["DLIS", "Lishuo", "Random", "VSIDS", "MOM", "JW"])
             return self.pick_branching_var()
+
+        if self.PBV_heuristic == "BigBang":
+            heuristics = ["DLIS", "MOM", "JW"]
+            all_var = []
+            all_assignments = []
+            for heuristic in heuristics:
+                self.PBV_heuristic = heuristic
+                var, assign = self.pick_branching_var()
+                all_var.append(var)
+                all_assignments.append(assign)
+            self.PBV_heuristic = "BigBang"
+
+            best_var = max(set(all_var), key=all_var.count)
+            best_var_assign = []
+            for j in range(len(all_assignments)):
+                if all_var[j] == best_var:
+                    best_var_assign.append(all_assignments[j])
+            best_assign = max(set(best_var_assign), key=best_var_assign.count)
+            return best_var, best_assign
 
         if self.PBV_heuristic == "DLIS":
             variables = self.count_unassigned_literals(self.clauses.union(self.learnt_clauses))
@@ -136,16 +153,6 @@ class CDCLSolver:
             return abs(variable), assign
 
         if self.PBV_heuristic == "Lishuo":
-
-            # def count_var(v):
-            #     print(v)
-            #     if isinstance(v, int):
-            #         return v
-            #     total = 0
-            #     for item in v:
-            #         total += count_var(item)
-            #     return total
-
             variables = {}
             variables2 = {}
             unassigned = list(self.all_unassigned_vars())
@@ -209,13 +216,6 @@ class CDCLSolver:
                     if i != key:
                         variables3[key].update(list(variables2[i]))
 
-            # while temp != variables3:
-            #     temp = copy.deepcopy(variables3)
-            #     for key, value in temp.items():
-            #         for i in value:
-            #             if i != key:
-            #                 variables3[key].update(list(temp[i]))
-
             summation = {}
             for i, _ in variables3.items():
                 sums = 0
@@ -255,7 +255,7 @@ class CDCLSolver:
             return random.choice(list(self.all_unassigned_vars())), random.choice([TRUE, FALSE])
 
         if self.PBV_heuristic == "Ordered":
-            return list(self.all_unassigned_vars())[0], random.choice([TRUE, FALSE])
+            return list(self.all_unassigned_vars())[0], TRUE
 
         if self.PBV_heuristic == "2-Clause":
             variables = self.count_unassigned_literals(
@@ -295,7 +295,7 @@ class CDCLSolver:
             assign = TRUE if variable > 0 else FALSE
             return abs(variable), assign
 
-        if self.PBV_heuristic == "VSID":
+        if self.PBV_heuristic == "VSIDS":
             unassigned = list(self.all_unassigned_vars())
             variable = 0
             for lit in unassigned:
@@ -315,41 +315,30 @@ class CDCLSolver:
         assign_history = [self.guess_trail[self.level]] + list(self.propagation_trail[self.level])
         logging.info(f"assign history for level {self.level} = {assign_history}")
 
-        pool_lits = conflict_clause
-        done_lits = set()
-        curr_level_lits = set()
-        prev_level_lits = set()
+        lits = conflict_clause
+        done = set()
+        previous_level = set()
+        current_level = set()
 
         while True:
             logging.info('-------')
-            logging.info('pool lits: %s', pool_lits)
-            for lit in pool_lits:
+            logging.info('pool lits: %s', lits)
+            for lit in lits:
                 if self.implication_graph[abs(lit)].level == self.level:
-                    curr_level_lits.add(lit)
+                    current_level.add(lit)
                 else:
-                    prev_level_lits.add(lit)
-
-            logging.info('curr level lits: %s', curr_level_lits)
-            logging.info('prev level lits: %s', prev_level_lits)
-            if len(curr_level_lits) == 1:
+                    previous_level.add(lit)
+            if len(current_level) == 1:
                 break
-
-            last_assigned, others = self.next_recent_assigned(curr_level_lits, assign_history)
-            logging.info('last assigned: %s, others: %s', last_assigned, others)
-
-            done_lits.add(abs(last_assigned))
-            curr_level_lits = set(others)
-
+            last_assigned, others = self.next_recent_assigned(current_level, assign_history)
+            done.add(abs(last_assigned))
+            current_level = set(others)
             pool_clause = self.implication_graph[abs(last_assigned)].clause
-            pool_lits = [
-                l for l in pool_clause if abs(l) not in done_lits
-            ] if pool_clause is not None else []
+            lits = [l for l in pool_clause if abs(l) not in done] if pool_clause is not None else []
 
-            logging.info('done lits: %s', done_lits)
-
-        learnt = frozenset([l for l in curr_level_lits.union(prev_level_lits)])
-        if prev_level_lits:
-            level = max([self.implication_graph[abs(x)].level for x in prev_level_lits])
+        learnt = frozenset([l for l in current_level.union(previous_level)])
+        if previous_level:
+            level = max([self.implication_graph[abs(x)].level for x in previous_level])
         else:
             level = self.level - 1
 
@@ -510,8 +499,6 @@ class CDCLSolver:
         """
         According to the assign history, separate the latest assigned variable
         with the rest in `clause`
-        :param clause: {set of int} the clause to separate
-        :return: ({int} variable, [int] other variables in clause)
         """
         for v in reversed(assign_history):
             if v in clause or -v in clause:
@@ -602,36 +589,31 @@ class Node:
         self.children = []
         self.clause = None      # The clause that caused unit prop
 
-    def all_parents(self):
-        ans = set(self.parents)
-        for parent in self.parents:
-            for p in parent.all_parents():
-                ans.add(p)
-        return list(ans)
-
-
-    def __str__(self):
-        sign = '+' if self.value == TRUE else '-' if self.value == FALSE else '?'
-        return "[{}{}:L{}, {}p, {}c, {}]".format(
-            sign, self.variable, self.level, len(self.parents), len(self.children), self.clause)
-
-    def __repr__(self):
-        return str(self)
-
 
 if __name__ == "__main__":
-    num_tries = 1
+
+    available_heuristics = ["DLIS", "RDLIS", "DLCS", "RDLCS", "Lishuo", "Lishuo2", "2-Clause",
+                            "MOM", "JW", "VSIDS", "Random", "Ordered", "BigBang", "SurpriseMe"]
+    if len(sys.argv) < 4:
+        print("Usage: python CDCL.py <filepath> <branching_heuristic> <restart?>")
+        print("Available heuristics: " + str(available_heuristics))
+        print("Restart = 1 to enable restart.")
+        exit(1)
+
+    path = sys.argv[1]
+    heuristic = sys.argv[2]
+    restart = sys.argv[3] == "1"
+
     total_time = 0
-    for i in range(num_tries):
-        t1 = time.time()
-        # solver = CDCLSolver("../data/test/uf150-645/uf150-01.cnf", "Lishuo")
-        solver = CDCLSolver("../data/test/uf100-430/uf100-01.cnf", "Lishuo2")
-        ans = solver.solve()
-        t2 = time.time()
-        total_time += t2 - t1
-        print("Answer: ", ans)
-        print("Verify: ", solver.checkSAT())
-        print("Branching: ", solver.num_PBV_invocations)
-        print("Heuristic: ", solver.PBV_heuristic)
-    print("Time: ", total_time / num_tries)
+    print("Running...")
+    t1 = time.time()
+    solver = CDCLSolver(path, heuristic, restart)
+    ans = solver.solve()
+    t2 = time.time()
+    total_time += t2 - t1
+    print("Answer: ", ans)
+    print("Verify: ", solver.checkSAT())
+    print("Heuristic: ", solver.PBV_heuristic)
+    print("Branching: ", solver.num_PBV_invocations)
+    print("Time: ", total_time)
 

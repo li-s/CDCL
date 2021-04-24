@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from CDCL import CDCLSolver
 
@@ -8,10 +9,11 @@ def test_all(root, PBV_heuristic="DLIS"):
         full_dir = os.path.join(root, directory)
         if directory.startswith("uuf"):
             print(f"Testing {full_dir}, target: UNSAT")
-            test(full_dir, "UNSAT")
+            test(full_dir, "UNSAT", PBV_heuristic)
         elif directory.startswith("uf"):
             print(f"Testing {full_dir}, target: SAT")
-            test(full_dir, "SAT")
+            test(full_dir, "SAT", PBV_heuristic)
+        print("-----------------------------------")
 
 
 def test(directory, sat="SAT", PBV_heuristic="DLIS"):
@@ -32,8 +34,8 @@ def test(directory, sat="SAT", PBV_heuristic="DLIS"):
                 print(f"Error at: {test_input}")
                 return
             # print(answer)
-        if index in alert_interval:
-            print(f"Done {index} out of {num_total_test} testcases.")
+        # if index in alert_interval:
+            # print(f"Done {index} out of {num_total_test} testcases.")
         index += 1
     print(f"Total time: {total_time}")
     print(f"Average time: {total_time / num_total_test}")
@@ -49,6 +51,12 @@ def check_answer(answer, sat):
 
 
 if __name__ == "__main__":
-    # heuristic = ["DLIS", "DLCS", "RDLCS", "Random", "Ordered", "2-Clause"]
-    # for h in heuristic:
-    test("../data/test/uf50-218", "SAT", "DLIS")
+    available_heuristics = ["DLIS", "RDLIS", "DLCS", "RDLCS", "Lishuo", "Lishuo2", "2-Clause",
+                            "MOM", "JW", "VSIDS", "Random", "Ordered", "BigBang", "SurpriseMe"]
+    if len(sys.argv) < 2:
+        print("Usage: python Benchmark.py <heuristic>")
+        print("Available heuristics: " + str(available_heuristics))
+        exit(1)
+
+    heuristic = sys.argv[1]
+    test_all("../data/test", "BigBang")
